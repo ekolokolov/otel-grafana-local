@@ -1,0 +1,60 @@
+version: '3.0'
+
+services:
+
+  tempo:
+    image: grafana/tempo:1.5.0
+    command: [ "-search.enabled=true", "-config.file=/etc/tempo.yaml" ]
+    container_name: tempo
+    hostname: tempo
+    volumes:
+      - ./grafana-setup/tempo-config.yaml:/etc/tempo.yaml
+      - ./grafana-setup/tempo-overrides.yaml:/etc/overrides.yaml
+      - ./tempo-data:/tmp/tempo
+    expose:
+      - "3200:3200"
+      - "4317:4317"
+    healthcheck:
+      interval: 5s
+      retries: 10
+      test: wget --no-verbose --tries=1 --spider http://localhost:3200/status || exit 1
+
+  grafana:
+    image: grafana/grafana:9.2.2
+    container_name: grafana
+    hostname: grafana
+    depends_on:
+      tempo:
+        condition: service_healthy
+    volumes:
+      - ./grafana-setup/grafana-bootstrap.ini:/etc/grafana/grafana.ini
+      - ./grafana-setup/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+    ports:
+      - "3000:3000"
+    healthcheck:
+      interval: 5s
+      retries: 10
+      test: wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1
+
+  collector:
+    image: otel/opentelemetry-collector:latest
+    container_name: collector
+    hostname: collector
+    depends_on:
+      tempo:
+        condition: service_healthy
+    command: [ "--config=/etc/collector-config.yaml" ]
+    volumes:
+      - ./collector-config-local.yaml:/etc/collector-config.yaml
+    ports:
+      - "4318:4318"
+      - "4317:4317"
+      - "6666:6666"
+
+networks:
+  default:
+    name: otel-grafana-local
